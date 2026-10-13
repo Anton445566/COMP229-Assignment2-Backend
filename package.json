@@ -1,0 +1,36 @@
+{
+  "name": "MyPortfolioBNew",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "index.js",
+  "author": "Blessing",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.4",
+    "babel-loader": "^9.2.1",
+    "nodemon": "^3.1.7"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test:backend": "node server/tests/backend.test.js",
+    "test:runtime": "node server/tests/runtime-api.test.js",
+    "dev": "concurrently 'vite' \"nodemon server.js\"",
+    "build": "vite build",
+    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "body-parser": "^1.20.3",
+    "compression": "^1.7.4",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "global": "^4.4.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "9.0.2",
+    "lodash": "^4.17.21",
+    "method-override": "^3.0.0",
+    "mongoose": "^8.7.0"
+  }
+}

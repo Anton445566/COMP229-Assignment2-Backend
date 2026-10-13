@@ -1,0 +1,12 @@
+node_modules/
+client/node_modules/
+.env
+.env.*
+!.env.example
+.backups/
+.history/
+submission/
+dist/
+client/dist/
+coverage/
+*.log
