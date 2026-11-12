@@ -1,6 +1,8 @@
 import { Link, NavLink } from 'react-router-dom'
+import { useAuth } from '../Auth.jsx'
 
 function Layout({ children }) {
+  const { user, signout } = useAuth()
   return (
     <>
       <header className="site-header">
@@ -19,6 +21,7 @@ function Layout({ children }) {
             <NavLink to="/education">Education</NavLink>
             <NavLink to="/services">Services</NavLink>
             <NavLink to="/contact">Contact Me</NavLink>
+            {user ? <><span>{user.role}</span><button className="button" onClick={signout}>Sign out</button></> : <><NavLink to="/signin">Signin</NavLink><NavLink to="/signup">Signup</NavLink></>}
           </nav>
         </div>
       </header>

@@ -1,36 +1,38 @@
 {
-  "name": "MyPortfolioBNew",
+  "name": "comp229-assignment3",
   "version": "1.0.0",
   "type": "module",
-  "main": "index.js",
-  "author": "Blessing",
+  "main": "server.js",
+  "author": "Anton Nasr",
   "license": "MIT",
   "devDependencies": {
-    "@babel/core": "^7.25.2",
-    "@babel/preset-env": "^7.25.4",
-    "babel-loader": "^9.2.1",
-    "nodemon": "^3.1.7"
+    "concurrently": "^9.0.1",
+    "docx": "^9.15.3",
+    "nodemon": "^3.1.7",
+    "playwright": "^1.65.0"
   },
   "scripts": {
     "start": "node server.js",
+    "dev:server": "nodemon server.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
     "test:backend": "node server/tests/backend.test.js",
     "test:runtime": "node server/tests/runtime-api.test.js",
-    "dev": "concurrently 'vite' \"nodemon server.js\"",
-    "build": "vite build",
-    "lint": "eslint src --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "test": "npm run test:backend && npm run test:runtime",
+    "seed": "node server/scripts/seed.js",
+    "submission:zip": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1",
+    "test:browser": "node server/tests/browser.test.js"
   },
   "dependencies": {
-    "body-parser": "^1.20.3",
     "compression": "^1.7.4",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "global": "^4.4.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "9.0.2",
-    "lodash": "^4.17.21",
-    "method-override": "^3.0.0",
     "mongoose": "^8.7.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

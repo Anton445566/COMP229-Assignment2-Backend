@@ -1,14 +1,8 @@
 import { Link } from 'react-router-dom'
 
-function Home({ contactSubmitted }) {
+function Home() {
   return (
     <>
-      {contactSubmitted && (
-        <p className="success-message" role="status">
-          Thank you for trying the contact form. Your information was captured
-          for this demo; no message was sent.
-        </p>
-      )}
       <section className="home-intro">
         <p className="eyebrow">Learning, building, and growing</p>
         <h1>Hi, I'm Anton Nasr</h1>

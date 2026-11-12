@@ -5,8 +5,12 @@ client/node_modules/
 !.env.example
 .backups/
 .history/
-submission/
+submission/*
+!submission/COMP229_Assignment3_Screenshot_Report.docx
 dist/
 client/dist/
 coverage/
 *.log
+
+.npm-cache/
+.runtime/

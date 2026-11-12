@@ -6,6 +6,7 @@ const hashPrefix = 'scrypt$32768$8$3$'
 const hashOptions = { N: 32768, r: 8, p: 3, maxmem: 64 * 1024 * 1024 }
 //const mongoose = require('mongoose');
 const UserSchema = new mongoose.Schema({
+ role: { type: String, enum: ['User', 'Admin'], default: 'User' },
  name: {
  type: String,
  trim: true,
@@ -13,6 +14,8 @@ const UserSchema = new mongoose.Schema({
  },
  email: {
  type: String,
+ lowercase: true,
+ unique: true,
  trim: true,
 match: [/.+\@.+\..+/, 'Please fill a valid email address'],
 required: 'Email is required'
@@ -82,4 +85,3 @@ UserSchema.set('toJSON', { transform: hidePassword });
 UserSchema.set('toObject', { transform: hidePassword });
 //module.exports = mongoose.model('User', UserSchema);
 export default mongoose.model('User', UserSchema);
-

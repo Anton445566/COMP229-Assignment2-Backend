@@ -1,13 +1,12 @@
-export default () => { 
+export default () => {
     return `<!doctype html>
-    <html lang="en"> 
+    <html lang="en">
     <head>
     <meta charset="utf-8">
-    <title>MERN Skeleton</title> 
+    <title>MERN Skeleton</title>
     </head>
     <body>
-    <div id="root">Hello World</div> 
+    <div id="root">Hello World</div>
     </body>
-    </html>` 
+    </html>`
     }
-    

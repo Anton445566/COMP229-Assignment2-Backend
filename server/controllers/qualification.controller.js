@@ -1,95 +1,34 @@
-
-import Qualification from '../models/qualification.model.js';
-
-// GET all qualifications
+﻿import Model from '../models/qualification.model.js';
+import errors from './error.controller.js';
+const fields = (body = {}) => Object.fromEntries(["title","firstname","lastname","email","institution","type","completion","description"].filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]]));
+const fail = (res, error) => res.status(errors.getStatus(error)).json({ error: errors.getErrorMessage(error) });
 const getAllQualifications = async (req, res) => {
-  try {
-    const qualifications = await Qualification.find();
-    res.status(200).json(qualifications);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+ try { return res.json(await Model.find()); } catch (error) { return fail(res, error); }
 };
-
-// GET a qualification by ID
 const getQualificationById = async (req, res) => {
-  try {
-    const qualification = await Qualification.findById(req.params.id);
-
-    if (!qualification) {
-      return res.status(404).json({ message: 'Qualification not found' });
-    }
-
-    res.status(200).json(qualification);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findById(req.params.id);
+ return record ? res.json(record) : res.status(404).json({ error: 'Qualification not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// POST a new qualification
 const createQualification = async (req, res) => {
-  try {
-    const qualification = new Qualification(req.body);
-    const savedQualification = await qualification.save();
-    res.status(201).json(savedQualification);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try { return res.status(201).json(await new Model(fields(req.body)).save()); }
+ catch (error) { return fail(res, error); }
 };
-
-// PUT update a qualification
 const updateQualification = async (req, res) => {
-  try {
-    const qualification = await Qualification.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    if (!qualification) {
-      return res.status(404).json({ message: 'Qualification not found' });
-    }
-
-    res.status(200).json(qualification);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findByIdAndUpdate(req.params.id, { $set: fields(req.body) }, { new: true, runValidators: true });
+ return record ? res.json(record) : res.status(404).json({ error: 'Qualification not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// DELETE a qualification by ID
 const deleteQualification = async (req, res) => {
-  try {
-    const qualification = await Qualification.findByIdAndDelete(req.params.id);
-
-    if (!qualification) {
-      return res.status(404).json({ message: 'Qualification not found' });
-    }
-
-    res.status(200).json({
-      message: 'Qualification deleted successfully'
-    });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findByIdAndDelete(req.params.id);
+ return record ? res.json({ message: 'Qualification deleted' }) : res.status(404).json({ error: 'Qualification not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// DELETE all qualifications
 const deleteAllQualifications = async (req, res) => {
-  try {
-    await Qualification.deleteMany({});
-    res.status(200).json({
-      message: 'All qualifications deleted successfully'
-    });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+ try { await Model.deleteMany({}); return res.json({ message: 'All qualifications deleted' }); }
+ catch (error) { return fail(res, error); }
 };
-
-export default {
-  getAllQualifications,
-  getQualificationById,
-  createQualification,
-  updateQualification,
-  deleteQualification,
-  deleteAllQualifications
-};
+export default { getAllQualifications, getQualificationById, createQualification, updateQualification, deleteQualification, deleteAllQualifications };

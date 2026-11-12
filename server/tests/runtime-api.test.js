@@ -1,173 +1,140 @@
+﻿import assert from 'node:assert/strict';
 import mongoose from 'mongoose';
+import jwt from 'jsonwebtoken';
 import { randomBytes } from 'node:crypto';
+import config from '../../config/config.js';
+import app from '../express.js';
+import User from '../models/user.model.js';
+import Contact from '../models/contact.model.js';
+import Project from '../models/project.model.js';
+import Qualification from '../models/qualification.model.js';
+import { seed } from '../scripts/seed.js';
 
-const testDatabaseName = `comp229a2t_${process.pid}_${Date.now().toString(36)}`;
-const ownerId = new mongoose.Types.ObjectId();
-const runId = `${process.pid}-${Date.now()}`;
-const ownerEmail = `owner-${runId}@example.test`;
-const memberEmail = `member-${runId}@example.test`;
-const password = `Test-${randomBytes(12).toString('hex')}`;
-const jwtSecret = randomBytes(48).toString('hex');
-const results = [];
-let server;
-let connectedToDisposableDatabase = false;
-
-const record = (name, method, path, expected, actual) => {
-  const passed = expected === actual;
-  results.push({ name, method, path, expected, actual, passed });
-  return passed;
-};
-
-const request = async (baseUrl, name, method, path, expected, { token, body } = {}) => {
-  const response = await fetch(baseUrl + path, {
-    method,
-    headers: {
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...(body === undefined ? {} : { 'content-type': 'application/json' })
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) })
-  });
-  const text = await response.text();
-  let responseBody;
-  try { responseBody = text ? JSON.parse(text) : undefined; } catch { responseBody = text; }
-  if (!record(name, method, path, expected, response.status)) {
-    throw new Error(`${name}: expected ${expected}, received ${response.status}; response ${JSON.stringify(responseBody)}`);
-  }
-  return responseBody;
-};
-
+const dbName = 'comp229a3t_' + process.pid + '_' + Date.now();
+const secret = randomBytes(48).toString('hex');
+config.jwtSecret = secret;
+const password = 'Runtime-' + randomBytes(16).toString('hex');
+let server, safe = false, checks = 0;
+async function request(method, path, status, token, body) {
+ const response = await fetch('http://127.0.0.1:' + server.address().port + path, {
+  method, headers: { ...(token ? { Authorization: 'Bearer ' + token } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+  ...(body ? { body: JSON.stringify(body) } : {})
+ });
+ const data = await response.json();
+ assert.equal(response.status, status, method + ' ' + path + ': ' + JSON.stringify(data));
+ checks++;
+ return data;
+}
 try {
-  const { default: config } = await import('../../config/config.js');
-  if (!config.mongoUri) throw new Error('MONGODB_URI is required for the disposable runtime test');
-  config.jwtSecret = jwtSecret;
-  config.adminUserIds = [String(ownerId).toLowerCase()];
-
-  await mongoose.connect(config.mongoUri, {
-    dbName: testDatabaseName,
-    serverSelectionTimeoutMS: 10000,
-    connectTimeoutMS: 10000
-  });
-  if (mongoose.connection.db.databaseName !== testDatabaseName ||
-      !testDatabaseName.startsWith('comp229a2t_')) {
-    throw new Error('Refusing to test against a non-disposable database');
+ await mongoose.connect(config.mongoUri, { dbName, serverSelectionTimeoutMS: 10000 });
+ assert.equal(mongoose.connection.db.databaseName, dbName);
+ assert.match(dbName, /^comp229a3t_\d+_\d+$/);
+ safe = true;
+ await Promise.all([User.init(), Contact.init(), Project.init(), Qualification.init()]);
+ const admin = await new User({ name: 'Admin', email: 'admin@test.example', password, role: 'Admin' }).save();
+ server = app.listen(0, '127.0.0.1');
+ await new Promise(resolve => server.once('listening', resolve));
+ await request('POST', '/api/users', 400, null, { name: 'Missing password', email: 'missing@test.example' });
+ await request('POST', '/api/users', 400, null, { name: 'Bad email', email: 'invalid', password });
+ await request('POST', '/api/users', 200, null, { name: 'Member', email: 'member@test.example', password, role: 'Admin', admin: true, _id: String(admin._id) });
+ await request('POST', '/api/users', 400, null, { name: 'Duplicate', email: 'MEMBER@test.example', password });
+ assert.equal((await User.findOne({ email: 'member@test.example' })).role, 'User'); checks++;
+ const owner = await request('POST', '/auth/signin', 200, null, { email: admin.email, password });
+ const member = await request('POST', '/auth/signin', 200, null, { email: 'MEMBER@test.example', password });
+ assert.equal(owner.user.role, 'Admin'); assert.equal(member.user.role, 'User'); checks += 2;
+ await request('POST', '/auth/signin', 401, null, { email: admin.email, password: 'wrong' });
+ await request('POST', '/auth/signin', 400, null, { email: { $ne: null }, password });
+ const a = owner.token, u = member.token, userPath = '/api/users/' + member.user._id;
+ await request('GET', '/api/users', 401);
+ await request('GET', '/api/users', 403, u);
+ await request('GET', '/api/users', 200, a);
+ await request('GET', '/api/users/' + admin._id, 403, u);
+ await request('PUT', '/api/users/' + admin._id, 403, u, { name: 'Hijacked' });
+ await request('DELETE', '/api/users/' + admin._id, 403, u);
+ const updated = await request('PUT', userPath, 200, u, { name: 'Updated', role: 'Admin', hashed_password: 'injected', salt: 'injected' });
+ assert.equal(updated.role, 'User'); checks++;
+ assert.equal((await User.findById(member.user._id)).role, 'User'); checks++;
+ await request('GET', userPath, 200, u);
+ for (const token of ['invalid', jwt.sign({ sub: String(admin._id) }, secret, { expiresIn: -1, issuer: 'comp229-portfolio', audience: 'comp229-api' })])
+  await request('GET', '/api/contacts', 401, token);
+ const resources = [
+  ['contacts', Contact, { firstname: 'Test', lastname: 'Contact', email: 'contact@test.example', contactNumber: '(555) 123-4567', message: 'Persist every field.' }, { message: 'Updated and persistent.' }],
+  ['projects', Project, { title: 'Runtime project', firstname: 'Anton', lastname: 'Nasr', email: 'anton@test.example', completion: '2026-11-12', description: 'Persistent project' }, { description: 'Updated and persistent.' }],
+  ['qualifications', Qualification, { title: 'Runtime qualification', institution: 'College', type: 'Education', completion: '2026-11-12', description: 'Persistent qualification' }, { description: 'Updated and persistent.' }]
+ ];
+ for (const [resource, Model, body, change] of resources) {
+  const base = '/api/' + resource;
+  if (resource === 'contacts') await request('GET', base, 401);
+  else await request('GET', base, 200);
+  await request('GET', base, 200, u);
+  await request('POST', base, 401, null, body);
+  await request('POST', base, 403, u, body);
+  await request('POST', base, 400, a, {});
+  await request('POST', base, 400, a, { ...body, email: 'invalid' });
+  if (resource !== 'contacts') await request('POST', base, 400, a, { ...body, completion: 'not-a-date' });
+  else await request('POST', base, 400, a, { ...body, contactNumber: 'abc' });
+  const created = await request('POST', base, 201, a, body);
+  const item = base + '/' + created._id;
+  const read = await request('GET', item, 200, u);
+  for (const key of Object.keys(body)) {
+   assert.equal(read[key], key === 'completion' ? new Date(body[key]).toISOString() : body[key]); checks++;
   }
-  connectedToDisposableDatabase = true;
-
-  const [{ default: app }, { default: User }, { default: Contact },
-    { default: Project }, { default: Qualification }] = await Promise.all([
-    import('../express.js'), import('../models/user.model.js'), import('../models/contact.model.js'),
-    import('../models/project.model.js'), import('../models/qualification.model.js')
-  ]);
-
-  await new User({ _id: ownerId, name: 'Portfolio Owner', email: ownerEmail, password }).save();
-  await Promise.all([Contact.init(), Project.init(), Qualification.init(), User.init()]);
-
-  server = app.listen(0, '127.0.0.1');
-  await new Promise((resolve, reject) => {
-    server.once('listening', resolve);
-    server.once('error', reject);
-  });
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
-
-  await request(baseUrl, 'Backend welcome', 'GET', '/', 200);
-  await request(baseUrl, 'Public user registration', 'POST', '/api/users', 200, {
-    body: { name: 'Assignment Member', email: memberEmail, password }
-  });
-  const ownerSignin = await request(baseUrl, 'Owner sign-in', 'POST', '/auth/signin', 200, {
-    body: { email: ownerEmail, password }
-  });
-  const memberSignin = await request(baseUrl, 'Member sign-in', 'POST', '/auth/signin', 200, {
-    body: { email: memberEmail, password }
-  });
-  const ownerToken = ownerSignin.token;
-  const memberToken = memberSignin.token;
-
-  await request(baseUrl, 'Contacts require authentication for listing', 'GET', '/api/contacts', 401);
-  await request(baseUrl, 'Public contact submission', 'POST', '/api/contacts', 200, {
-    body: { firstname: 'Contact', lastname: 'One', email: `contact-one-${runId}@example.test` }
-  });
-  let contacts = await request(baseUrl, 'Get all contacts', 'GET', '/api/contacts', 200, { token: ownerToken });
-  let contactId = String(contacts.find(item => item.email === `contact-one-${runId}@example.test`)._id);
-  await request(baseUrl, 'Get contact by ID', 'GET', `/api/contacts/${contactId}`, 200, { token: ownerToken });
-  await request(baseUrl, 'Update contact by ID', 'PUT', `/api/contacts/${contactId}`, 200, {
-    token: ownerToken, body: { firstname: 'Updated' }
-  });
-  await request(baseUrl, 'Delete contact by ID', 'DELETE', `/api/contacts/${contactId}`, 200, { token: ownerToken });
-  for (const number of [2, 3]) {
-    await request(baseUrl, `Create contact ${number}`, 'POST', '/api/contacts', 200, {
-      body: { firstname: 'Contact', lastname: String(number), email: `contact-${number}-${runId}@example.test` }
-    });
-  }
-  await request(baseUrl, 'Ordinary user cannot delete all contacts', 'DELETE', '/api/contacts', 403, { token: memberToken });
-  await request(baseUrl, 'Owner deletes all disposable contacts', 'DELETE', '/api/contacts', 200, { token: ownerToken });
-
-  const resources = [
-    {
-      name: 'project', path: 'projects', Model: Project,
-      body: { title: 'Runtime Project', firstname: 'Project', lastname: 'Tester', email: `project-${runId}@example.test`, completion: '2026-10-13', description: 'Disposable runtime test' },
-      update: { description: 'Updated disposable runtime test' }
-    },
-    {
-      name: 'qualification', path: 'qualifications', Model: Qualification,
-      body: { title: 'Runtime Qualification', firstname: 'Qualification', lastname: 'Tester', email: `qualification-${runId}@example.test`, completion: '2026-10-13', description: 'Disposable runtime test' },
-      update: { description: 'Updated disposable runtime test' }
-    }
-  ];
-
-  for (const resource of resources) {
-    await request(baseUrl, `Public get all ${resource.path}`, 'GET', `/api/${resource.path}`, 200);
-    const created = await request(baseUrl, `Create ${resource.name}`, 'POST', `/api/${resource.path}`, resource.path === 'projects' ? 201 : 201, {
-      token: ownerToken, body: resource.body
-    });
-    const id = String(created._id);
-    await request(baseUrl, `Public get ${resource.name} by ID`, 'GET', `/api/${resource.path}/${id}`, 200);
-    await request(baseUrl, `Update ${resource.name} by ID`, 'PUT', `/api/${resource.path}/${id}`, 200, {
-      token: ownerToken, body: resource.update
-    });
-    await request(baseUrl, `Delete ${resource.name} by ID`, 'DELETE', `/api/${resource.path}/${id}`, 200, { token: ownerToken });
-    for (const number of [2, 3]) {
-      await request(baseUrl, `Create ${resource.name} ${number}`, 'POST', `/api/${resource.path}`, 201, {
-        token: ownerToken,
-        body: { ...resource.body, title: `${resource.body.title} ${number}`, email: `${resource.name}-${number}-${runId}@example.test` }
-      });
-    }
-    await request(baseUrl, `Ordinary user cannot delete all ${resource.path}`, 'DELETE', `/api/${resource.path}`, 403, { token: memberToken });
-    await request(baseUrl, `Owner deletes all disposable ${resource.path}`, 'DELETE', `/api/${resource.path}`, 200, { token: ownerToken });
-  }
-
-  const users = await request(baseUrl, 'Get all users', 'GET', '/api/users', 200, { token: ownerToken });
-  const member = users.find(item => item.email === memberEmail);
-  await request(baseUrl, 'Get own user by ID', 'GET', `/api/users/${member._id}`, 200, { token: memberToken });
-  await request(baseUrl, 'Update own user by ID', 'PUT', `/api/users/${member._id}`, 200, {
-    token: memberToken, body: { name: 'Updated Assignment Member' }
-  });
-  await request(baseUrl, 'Ordinary user cannot delete all users', 'DELETE', '/api/users', 403, { token: memberToken });
-  await request(baseUrl, 'Delete own disposable user by ID', 'DELETE', `/api/users/${member._id}`, 200, { token: memberToken });
-  await request(baseUrl, 'Owner deletes all disposable users', 'DELETE', '/api/users', 200, { token: ownerToken });
-  await request(baseUrl, 'Sign-out', 'GET', '/auth/signout', 200);
-
-  const counts = {
-    contacts: await Contact.countDocuments(), projects: await Project.countDocuments(),
-    qualifications: await Qualification.countDocuments(), users: await User.countDocuments()
-  };
-  if (Object.values(counts).some(count => count !== 0)) throw new Error('Disposable test records were not cleared');
-
-  console.log(JSON.stringify({
-    result: 'PASS', tests: results.length, passed: results.filter(item => item.passed).length,
-    database: 'isolated disposable database', destructiveRequestsAgainstExistingDatabase: 0,
-    checks: results, finalDisposableRecordCounts: counts
-  }, null, 2));
-} catch (error) {
-  console.error(JSON.stringify({ result: 'FAIL', completed: results.length, message: error.message }, null, 2));
-  process.exitCode = 1;
-} finally {
-  if (server) await new Promise(resolve => server.close(resolve));
-  if (connectedToDisposableDatabase && mongoose.connection.db?.databaseName === testDatabaseName) {
-    try { await mongoose.connection.db.dropDatabase(); }
-    catch (cleanupError) {
-      console.error(JSON.stringify({ cleanup: 'FAIL', message: cleanupError.message }));
-      process.exitCode = 1;
-    }
-  }
+  assert.ok(await Model.findById(created._id)); checks++;
+  await request('PUT', item, 401, null, change);
+  await request('PUT', item, 403, u, change);
+  await request('DELETE', item, 401);
+  await request('DELETE', item, 403, u);
+  await request('PUT', item, 400, a, resource === 'contacts' ? { firstname: ' ' } : { title: ' ' });
+  await request('PUT', item, 200, a, { ...change, $unset: { title: 1 } });
+  const reread = await request('GET', item, 200, u);
+  for (const key of Object.keys(change)) { assert.equal(reread[key], change[key]); checks++; }
+  // Reopen the connection and read again: data is in MongoDB, not a server-side array.
   await mongoose.disconnect();
+  await mongoose.connect(config.mongoUri, { dbName, serverSelectionTimeoutMS: 10000 });
+  assert.equal(mongoose.connection.db.databaseName, dbName);
+  assert.deepEqual((await request('GET', item, 200, u))._id, created._id); checks++;
+  for (const method of ['GET', 'PUT', 'DELETE']) {
+   await request(method, base + '/not-an-id', 400, a, method === 'PUT' ? change : undefined);
+   await request(method, base + '/' + new mongoose.Types.ObjectId(), 404, a, method === 'PUT' ? change : undefined);
+  }
+  await request('DELETE', item, 200, a);
+  await request('GET', item, 404, u);
+  await request('DELETE', base, 401);
+  await request('DELETE', base, 403, u);
+  await request('POST', base, 201, a, body);
+  await request('DELETE', base, 200, a);
+  assert.equal(await Model.countDocuments(), 0); checks++;
+ }
+ // Roles are reloaded from MongoDB rather than trusted from an old token.
+ await User.updateOne({ _id: admin._id }, { $set: { role: 'User' } });
+ await request('POST', '/api/projects', 403, a, resources[1][2]);
+ await User.updateOne({ _id: admin._id }, { $set: { role: 'Admin' } });
+ await request('GET', '/auth/signout', 200);
+ await request('GET', '/api/users/bad', 400, a);
+ await request('GET', '/api/users/' + new mongoose.Types.ObjectId(), 404, a);
+ // Run setup twice against this disposable DB and verify existing admin and content remain unchanged.
+ process.env.ADMIN_EMAIL = 'seed@test.example'; process.env.ADMIN_PASSWORD = password;
+ await seed();
+ const seeded = await User.findOne({ email: process.env.ADMIN_EMAIL }).select('+hashed_password +salt');
+ const hash = seeded.hashed_password;
+ await Project.updateOne({ title: 'Growing Planet' }, { $set: { description: 'Keep this edit' } });
+ await seed();
+ assert.equal((await User.findById(seeded._id).select('+hashed_password')).hashed_password, hash); checks++;
+ assert.equal((await Project.findOne({ title: 'Growing Planet' })).description, 'Keep this edit'); checks++;
+ assert.equal(await Project.countDocuments(), 3); checks++;
+ assert.equal(await Qualification.countDocuments(), 4); checks++;
+ process.env.ADMIN_EMAIL = 'member@test.example';
+ await assert.rejects(seed(), /belongs to a User/); checks++;
+ await request('DELETE', userPath, 200, u);
+ await request('GET', userPath, 401, u);
+ await request('DELETE', '/api/users', 401, owner.token.replace(/.$/, 'x'));
+} catch (error) {
+ console.error(error);
+ process.exitCode = 1;
+} finally {
+ if (server) await new Promise(resolve => server.close(resolve));
+ if (safe && mongoose.connection.db?.databaseName === dbName && /^comp229a3t_\d+_\d+$/.test(dbName))
+  await mongoose.connection.db.dropDatabase();
+ await mongoose.disconnect();
+ console.log(JSON.stringify({ result: process.exitCode ? 'FAIL' : 'PASS', checks, database: dbName, existingDatabaseRecordsDeleted: 0 }));
 }

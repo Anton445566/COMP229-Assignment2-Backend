@@ -1,76 +1,109 @@
-# COMP229 Assignment 2 — Portfolio Backend
+﻿# COMP229 Assignment 3 — Anton Nasr's Portfolio
 
-This project contains the React portfolio from Assignment 1 and the Node.js, Express, Mongoose, and MongoDB backend required for Assignment 2.
+React portfolio connected to Express and MongoDB, with JWT signin and database-backed Admin/User roles. The existing Home, About, Services, illustrations, layout, resume, and portfolio content are retained. Projects and Education now read MongoDB records; browser storage does not substitute for database persistence.
 
-## Requirements
+## Windows / VS Code setup
 
-- Node.js and npm or Yarn
-- MongoDB connection string
-- A JWT secret containing at least 32 bytes
-- A securely registered portfolio-owner account for owner-only bulk deletion
+Use Node.js 22.12 or newer (tested with Node 24), npm, and a running MongoDB service, or supply your own MongoDB URI. Run from the project root in PowerShell. Use npm.cmd to avoid execution-policy issues with npm.ps1.
 
-Set these environment variables before starting the backend. Do not commit real values.
+~~~powershell
+npm.cmd ci
+npm.cmd --prefix client ci
+Copy-Item .env.example .env
+node --input-type=module -e "import {randomBytes} from 'node:crypto'; console.log(randomBytes(48).toString('hex'))"
+notepad .env
+~~~
 
-```text
-MONGODB_URI=<your MongoDB connection string>
-JWT_SECRET=<a random secret of at least 32 bytes>
-PORTFOLIO_ADMIN_IDS=<owner MongoDB user ID; comma-separate multiple IDs>
-PORT=3000
-```
+Copy the generated random value into JWT_SECRET. Set MONGODB_URI and a private ADMIN_PASSWORD of at least 12 characters. Keep ADMIN_EMAIL=admin@portfolio.local or choose your own. The backend loads the root .env automatically, even when started from another directory; terminal environment variables take precedence.
 
-Use [.env.example](.env.example) as a value guide. The application does not automatically load `.env`; set the variables in the terminal or hosting environment.
+Do not copy over an existing .env. In this prepared workspace it already contains a generated JWT secret and random demonstration admin password. Open .env locally to read ADMIN_PASSWORD; it is excluded from Git and the ZIP.
 
-Install and start:
+~~~powershell
+npm.cmd run seed
+npm.cmd run dev
+~~~
 
-```text
-yarn install
-yarn start
-```
+Open **http://127.0.0.1:5173**. Express uses port 3000. Vite forwards /api and /auth to Express. Keep ports 3000 and 5173 free. Alternatively, run npm.cmd run dev:server and npm.cmd --prefix client run dev in two terminals. npm.cmd start runs only the backend.
 
-The frontend keeps its existing workflow:
+## Demonstration admin and portfolio data
 
-```text
-cd client
-yarn install
-yarn dev
-```
+Sign in at /signin using **admin@portfolio.local** (or ADMIN_EMAIL) and the ADMIN_PASSWORD used for the initial seed. The seed stores a salted scrypt password hash and explicit Admin role in MongoDB. It adds the three original projects and four education/qualification records only when their titles are absent.
 
-## Authentication
+The seed is repeatable: it never deletes records, resets an existing admin password, replaces edited portfolio content, or elevates an existing User account. If the configured email belongs to a User, choose another email. Changing ADMIN_PASSWORD after the first seed does not change an existing password.
 
-- `POST /api/users` registers a user and stores new passwords with salted scrypt hashing.
-- `POST /auth/signin` returns a one-hour bearer token and safe user details.
-- `GET /auth/signout` clears the legacy auth cookie; the caller must discard its bearer token.
-- Send protected requests with `Authorization: Bearer <token>`.
-- Existing legacy users whose passwords were stored as plaintext are intentionally not authenticated and were not modified.
-- All DELETE-all endpoints require the signed-in user's ID to be listed in `PORTFOLIO_ADMIN_IDS`. There is no default administrator.
+In this workspace the demo admin and portfolio records were successfully seeded in the local Portfolio database. Tests used separately named disposable databases.
 
-To configure the first owner without changing records automatically: register securely, sign in, copy `user._id` from the sign-in response, set `PORTFOLIO_ADMIN_IDS` to that value, and restart the backend.
+## Permission interpretation and authentication
 
-## REST API
+The Contact-form requirement conflicts with regular-user read-only access. This implementation follows the requested strict interpretation: **only Admin accounts can create, edit, or delete Contacts**, including submitting the Contact form. Signed-in Users can read Contacts. Projects and Qualifications remain publicly readable to preserve the portfolio, and signed-in Users can read them too.
 
-| Resource | Collection endpoint | Item endpoint | Public access |
+| Action | Anonymous | User | Admin |
 | --- | --- | --- | --- |
-| Contacts | `/api/contacts` | `/api/contacts/:contactId` | POST only |
-| Projects | `/api/projects` | `/api/projects/:id` | GET all and GET by ID |
-| Qualifications | `/api/qualifications` | `/api/qualifications/:id` | GET all and GET by ID |
-| Users | `/api/users` | `/api/users/:userId` | POST registration only |
+| Signup / signin | Yes | Yes | Yes |
+| Read Projects / Qualifications | Yes | Yes | Yes |
+| Read Contacts | 401 | Yes | Yes |
+| Write Contacts / Projects / Qualifications | 401 | 403 | Yes |
+| Read/update/delete own account | 401 | Yes | Yes |
+| Access another account / list all accounts | 401 | 403 | Yes |
+| Delete all records in a resource | 401 | 403 | Yes |
 
-Each resource supports GET-all, GET-by-ID, POST, PUT, DELETE-by-ID, and DELETE-all. Other than the public operations listed above, a bearer token is required. User item access is limited to that user or a configured owner. DELETE-all is owner-only.
+- Signup defaults to User. Client-supplied roles, IDs, hashes, salts, and internal fields are ignored on signup/account updates, including requests by admins. Role changes are a database administration operation.
+- Every protected request verifies the JWT and reloads the current role from MongoDB. An old token cannot retain permissions after a database role change. Frontend admin routes also check the session.
+- JWTs use HS256, issuer/audience checks, and one-hour expiration. Passwords use a random salt and scrypt; plaintext legacy records cannot sign in.
+- Only authentication information is saved in tab-scoped sessionStorage, never submitted records. Refresh revalidates the session with the backend. Invalid/expired tokens clear authentication; a timer clears expired sessions too.
+- GET /auth/signout clears the legacy cookie. The client always discards its session on signout. JWTs are stateless: a separately copied bearer token remains valid until expiration; there is no server-side blacklist.
+- Emails are normalized to lowercase with a unique MongoDB index. Existing duplicate emails can prevent index setup; resolve those manually without automatic deletion.
 
-## Verification
+## Forms and API
 
-Run the database-free automated tests:
+Signup: /signup; signin: /signin; lists: /projects, /education, /contact.
 
-```text
-yarn test:backend
-```
+Admins use Add/Edit/Delete controls. Forms have controlled React state, browser/server validation, loading states, useful errors, save/delete messages, and delete confirmation. Contact submits firstname, lastname, email, contactNumber, and message. All five fields are validated and persisted.
 
-Run the full API suite against an automatically named disposable database:
+Project requires title, firstname, lastname, and valid email. Completion date and description are optional. Qualification requires title; firstname, lastname, email, institution, type, completion, and description are optional. Dates use date inputs and ISO storage; empty dates are sent as null.
 
-```text
-yarn test:runtime
-```
+API routes:
+- POST /api/users — signup
+- POST /auth/signin; GET /auth/signout
+- /api/contacts, /api/projects, /api/qualifications, /api/users: GET, POST, DELETE collection routes; GET, PUT, DELETE item routes.
+- Item parameter names: :contactId, :id, :id, :userId, respectively.
 
-The runtime suite never points destructive requests at the configured database: it overrides the database name with a unique `comp229a2t_...` name, verifies that name before inserting data, performs the CRUD tests, checks that all disposable collections are empty, and drops only that disposable database.
+The updated Postman collection keeps write/destructive tests disabled by default. Enable them only for a disposable database; sign in with an Admin for write tests.
 
-Import [server/tests/COMP229.postman_collection.json](server/tests/COMP229.postman_collection.json) into Postman for manual tests. Resource writes are blocked until `allowWriteTests` is set to `true`; all DELETE requests are blocked until `allowDestructiveTests` is set to `true`. Enable destructive tests only for an isolated disposable database.
+## Validation actually completed
+
+~~~powershell
+npm.cmd run test:backend
+npm.cmd run test:runtime
+npm.cmd run test:browser
+npm.cmd run build
+npm.cmd audit
+npm.cmd --prefix client audit
+~~~
+
+- Backend: **28 tests passed**, covering hashing, safe account fields, JWT verification, route guards, and errors.
+- Runtime: **150 checks passed** in isolated MongoDB: signup/duplicate email, valid/invalid signin, role injection attempts, all resource CRUD, 401/403, invalid inputs/IDs, missing records, invalid/expired JWTs, role demotion, seed idempotency, and rereads after disconnecting/reconnecting MongoDB.
+- Chrome browser: **44 checks passed**: signup, signin errors, user/admin views, protected routes, all three create/edit/delete forms, cancel/confirm deletion, persistence after full refresh, signout/session cleanup, invalid-token cleanup, main pages, and mobile layout. No JavaScript errors observed.
+- Frontend production build passed.
+- Both npm audits reported zero vulnerabilities after compatible dependency fixes.
+- Local seed was run twice; the existing admin was preserved.
+
+Runtime and browser tests override the database name with a unique comp229a3t_... or comp229a3browser_... name, verify it before cleanup, and drop only that database. Existing application records are not deleted by tests. Browser tests require standard Windows Chrome, or CHROME_PATH set to another Chrome executable, and ports 3000/5173 free. They regenerate the report from genuine screenshots.
+
+## Submission and GitHub
+
+Run npm.cmd run submission:zip to create submission/COMP229_Assignment3_Portfolio.zip. It includes source, npm lockfiles, .env.example, and instructions, excluding dependencies, .env, Git metadata, builds, caches, logs, submission output, and reference files.
+
+Also submit submission/COMP229_Assignment3_Screenshot_Report.docx, containing 15 genuine Chrome screenshots, numbered sequentially. Mobile views are split into two readable viewport captures. Original PNGs and results are in submission/screenshots/ and submission/browser-results.json. Screenshots use a disposable demonstration database.
+
+Git origin is configured to [Anton445566/COMP229-Assignment2-Backend](https://github.com/Anton445566/COMP229-Assignment2-Backend). Assignment 3 uses the [assignment3 branch](https://github.com/Anton445566/COMP229-Assignment2-Backend/tree/assignment3), preserving the existing main history. The corrected Word report is tracked; .env, node_modules, raw screenshots, and the generated ZIP are excluded. For future updates:
+
+~~~powershell
+git add .
+git commit -m "Complete COMP229 Assignment 3"
+git push -u origin assignment3
+~~~
+
+Submit the assignment3 branch URL above along with the ZIP and Word report. Never commit .env.
+
+No reference folder, Assignment 3 document, or Week 8 labs were present in the supplied workspace or attachment folder. Implementation follows the detailed pasted request; comparison with the original rubric remains pending until those documents are supplied.

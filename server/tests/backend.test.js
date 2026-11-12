@@ -101,13 +101,14 @@ test('assignment models expose the required contact, project, qualification, and
     Contact: [Contact, ['firstname', 'lastname', 'email']],
     Project: [Project, ['title', 'firstname', 'lastname', 'email', 'completion', 'description']],
     Qualification: [Qualification, ['title', 'firstname', 'lastname', 'email', 'completion', 'description']],
-    User: [User, ['name', 'email', 'created', 'updated']]
+    User: [User, ['name', 'email', 'created', 'updated', 'role']]
   };
   for (const [name, [Model, fields]] of Object.entries(required)) {
     for (const field of fields) assert.ok(Model.schema.path(field), `${name}.${field} is required by the assignment`);
   }
   assert.notEqual(Contact.schema.path('email').options.unique, true);
-  assert.notEqual(User.schema.path('email').options.unique, true);
+  assert.equal(User.schema.path('email').options.unique, true);
+  assert.equal(new User().role, 'User');
 });
 
 test('missing, short, nonstring, and oversized passwords are rejected', async () => {
@@ -152,7 +153,7 @@ test('contact update accepts schema fields only, using a mocked save', async () 
   let saves = 0;
   const record = { firstname: 'Old', save: async () => { saves++; } };
   const res = result();
-  await contact.update({ contact: record, body: { firstname: 'New', _id: ownerId, updated: 1, admin: true } }, res);
+  await contact.update({ contact: record, body: { firstname: 'New', _id: ownerId, updated: 1, admin: true, role: 'Admin' } }, res);
   assert.equal(saves, 1);
   assert.equal(record.firstname, 'New');
   for (const field of ['_id', 'updated', 'admin']) assert.equal(Object.hasOwn(record, field), false);
@@ -165,7 +166,7 @@ test('user registration ignores client-supplied internal fields', async (t) => {
   const res = result();
   await user.create({ body: {
     name: 'New', email: 'new@example.test', password: 'test-password',
-    _id: ownerId, hashed_password: 'injected', salt: 'injected', admin: true
+    _id: ownerId, hashed_password: 'injected', salt: 'injected', admin: true, role: 'Admin'
   } }, res);
   assert.equal(res.statusCode, 200);
   assert.notEqual(String(record._id), ownerId);
@@ -173,16 +174,18 @@ test('user registration ignores client-supplied internal fields', async (t) => {
   assert.equal(record.hashed_password, undefined);
   assert.equal(record.salt, undefined);
   assert.equal(record.admin, undefined);
+  assert.equal(record.role, 'User');
 });
 
 test('user update prevents internal-field assignment and returns safe fields', async () => {
-  const record = { _id: memberId, name: 'Old', email: 'member@example.test', hashed_password: 'private', salt: 'private', save: async () => {} };
+  const record = { _id: memberId, name: 'Old', email: 'member@example.test', role: 'User', hashed_password: 'private', salt: 'private', save: async () => {} };
   const res = result();
-  await user.update({ profile: record, body: { name: 'New', hashed_password: 'injected', salt: 'injected', _id: ownerId, admin: true } }, res);
+  await user.update({ profile: record, body: { name: 'New', hashed_password: 'injected', salt: 'injected', _id: ownerId, admin: true, role: 'Admin' } }, res);
   assert.equal(record._id, memberId);
   assert.equal(record.hashed_password, 'private');
   assert.equal(record.salt, 'private');
   assert.equal(record.admin, undefined);
+  assert.equal(record.role, 'User');
   assert.equal(res.body.name, 'New');
   assert.equal(Object.hasOwn(res.body, 'hashed_password'), false);
   assert.equal(Object.hasOwn(res.body, 'salt'), false);
@@ -230,7 +233,7 @@ test('sign-in verifies a password and issues a limited JWT with safe user data',
   const claims = jwt.verify(res.body.token, secret, { algorithms: ['HS256'], issuer: 'comp229-portfolio', audience: 'comp229-api' });
   assert.equal(claims.sub, memberId);
   assert.equal(claims.exp - claims.iat, 3600);
-  assert.deepEqual(Object.keys(res.body.user).sort(), ['_id', 'email', 'name']);
+  assert.deepEqual(Object.keys(res.body.user).sort(), ['_id', 'email', 'name', 'role']);
   assert.equal(Object.hasOwn(claims, 'admin'), false);
 });
 
@@ -272,7 +275,7 @@ test('valid JWTs identify existing users; tokens for deleted users are rejected'
   let continued = false;
   await auth.requireSignin(req, result(), () => { continued = true; });
   assert.equal(continued, true);
-  assert.deepEqual(req.auth, { _id: memberId });
+  assert.deepEqual(req.auth, { _id: memberId, role: 'User' });
   stub.mock.restore();
   t.mock.method(User, 'findById', () => ({ select: async () => null }));
   const res = result();
@@ -285,13 +288,13 @@ test('ordinary users cannot pass the bulk-delete owner guard; there is no defaul
   auth.requireAdmin({ auth: { _id: memberId } }, denied, () => assert.fail('Ordinary user elevated'));
   assert.equal(denied.statusCode, 403);
   let allowed = false;
-  auth.requireAdmin({ auth: { _id: ownerId } }, result(), () => { allowed = true; });
+  auth.requireAdmin({ auth: { _id: ownerId, role: 'Admin' } }, result(), () => { allowed = true; });
   assert.equal(allowed, true);
   const previous = config.adminUserIds;
   try {
     config.adminUserIds = [];
     const res = result();
-    auth.requireAdmin({ auth: { _id: ownerId } }, res, () => assert.fail('Default admin exists'));
+    auth.requireAdmin({ auth: { _id: ownerId, role: 'User' } }, res, () => assert.fail('ID configuration granted admin'));
     assert.equal(res.statusCode, 403);
   } finally { config.adminUserIds = previous; }
 });
@@ -299,7 +302,7 @@ test('ordinary users cannot pass the bulk-delete owner guard; there is no defaul
 test('user account access is restricted to self or configured owner', () => {
   let allowed = 0;
   auth.hasAuthorization({ auth: { _id: memberId }, params: { userId: memberId } }, result(), () => allowed++);
-  auth.hasAuthorization({ auth: { _id: ownerId }, params: { userId: memberId } }, result(), () => allowed++);
+  auth.hasAuthorization({ auth: { _id: ownerId, role: 'Admin' }, params: { userId: memberId } }, result(), () => allowed++);
   assert.equal(allowed, 2);
   const res = result();
   auth.hasAuthorization({ auth: { _id: memberId }, params: { userId: ownerId } }, res, () => assert.fail('Cross-account access allowed'));
@@ -332,7 +335,7 @@ test('all resource CRUD routes exist; every bulk-delete route has owner protecti
 test('approved public endpoints remain public and sensitive GET routes require authentication', () => {
   assert.deepEqual(handlers(authRoutes, 'post', '/auth/signin'), [auth.signin]);
   assert.deepEqual(handlers(authRoutes, 'get', '/auth/signout'), [auth.signout]);
-  assert.deepEqual(handlers(contactRoutes, 'post', '/api/contacts'), [contact.create]);
+  assert.deepEqual(handlers(contactRoutes, 'post', '/api/contacts'), [auth.requireSignin, auth.requireAdmin, contact.create]);
   assert.deepEqual(handlers(userRoutes, 'post', '/api/users'), [user.create]);
   for (const [router, base] of [[projectRoutes, '/api/projects'], [qualificationRoutes, '/api/qualifications']]) {
     assert.equal(handlers(router, 'get', base).includes(auth.requireSignin), false);
@@ -365,13 +368,11 @@ test('the edited Express pipeline rejects anonymous sensitive GETs and adds secu
   }
 });
 
-test('public contact submission parses JSON through Express, with persistence mocked', async (t) => {
-  let saved;
-  t.mock.method(Contact.prototype, 'save', async function() { saved = this; return this; });
-  const response = await dispatch('POST', '/api/contacts', JSON.stringify({ firstname: 'Test', lastname: 'Contact', email: 'test@example.test' }));
-  assert.equal(response.status, 200);
-  assert.equal(saved.firstname, 'Test');
-  assert.equal(saved.email, 'test@example.test');
+test('anonymous contact submission cannot reach persistence', async (t) => {
+ const stub = t.mock.method(Contact.prototype, 'save', async () => assert.fail('Anonymous write reached persistence'));
+ const response = await dispatch('POST', '/api/contacts', JSON.stringify({ firstname: 'Test' }));
+ assert.equal(response.status, 401);
+ assert.equal(stub.mock.callCount(), 0);
 });
 
 test('malformed JSON reaches the final error handler before any contact save', async (t) => {

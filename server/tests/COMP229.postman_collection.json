@@ -1,8 +1,8 @@
 {
   "info": {
-    "name": "COMP229 Assignment 2 Backend",
+    "name": "COMP229 Assignment 3 API",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "description": "Set baseUrl, email, password, and record IDs locally. Sign-in uses securely hashed users; legacy plaintext users cannot sign in. Only explicitly configured PORTFOLIO_ADMIN_IDS users can bulk-delete. PUT and resource POST tests are blocked unless allowWriteTests is true. All DELETE tests are blocked unless allowDestructiveTests is true. Never enable destructive tests against existing portfolio records; use an isolated disposable database. Sign-out discards the local token; a copied JWT remains valid until its one-hour expiry. The confirmed qualification ID is 6ace9116f39bfd9e9f4fc3e8."
+    "description": "Sign in with a database Admin account for write tests. Users can read records; Contacts require signin. All Contact, Project, and Qualification writes require Admin. User item routes allow self or Admin; user listing and bulk deletion require Admin. Write/destructive tests are blocked by default; enable only against an isolated disposable database. Signout clears local credentials; bearer tokens expire after one hour."
   },
   "auth": {
     "type": "bearer",
@@ -49,7 +49,7 @@
     },
     {
       "key": "qualificationId",
-      "value": "6ace9116f39bfd9e9f4fc3e8"
+      "value": ""
     },
     {
       "key": "allowWriteTests",
@@ -180,15 +180,12 @@
             "url": "{{baseUrl}}/api/contacts",
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"firstname\": \"Assignment\",\n  \"lastname\": \"Test\",\n  \"email\": \"contact-test@example.test\"\n}",
+              "raw": "{\n  \"firstname\": \"Assignment\",\n  \"lastname\": \"Test\",\n  \"email\": \"contact-test@example.test\",\n  \"contactNumber\": \"(555) 123-4567\",\n  \"message\": \"Postman test contact\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
                 }
               }
-            },
-            "auth": {
-              "type": "noauth"
             }
           },
           "event": [
@@ -197,7 +194,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Expected status 200\", function () { pm.response.to.have.status(200); });"
+                  "pm.test(\"Expected status 201\", function () { pm.response.to.have.status(201); });"
                 ]
               }
             }

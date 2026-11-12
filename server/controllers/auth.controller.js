@@ -12,8 +12,6 @@ const signingSecret = () => {
   return config.jwtSecret;
 };
 
-const isAdmin = (id) => (config.adminUserIds || []).includes(String(id).toLowerCase());
-
 const signin = async (req, res) => {
   try {
     const secret = signingSecret();
@@ -22,14 +20,14 @@ const signin = async (req, res) => {
         !password || Buffer.byteLength(password, 'utf8') > 1024) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
-    const user = await User.findOne({ email: email.trim() }).select('+hashed_password +salt');
+    const user = await User.findOne({ email: email.trim().toLowerCase() }).select('+hashed_password +salt');
     if (!user || !(await user.authenticate(password))) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
     const token = jwt.sign({ sub: String(user._id) }, secret, {
       algorithm: 'HS256', expiresIn: '1h', issuer: 'comp229-portfolio', audience: 'comp229-api'
     });
-    return res.json({ token, user: { _id: user._id, name: user.name, email: user.email } });
+    return res.json({ token, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
   } catch (err) {
     return res.status(errorHandler.getStatus(err)).json({ error: errorHandler.getErrorMessage(err) });
   }
@@ -59,9 +57,9 @@ const requireSignin = async (req, res, next) => {
     return res.status(401).json({ error: 'Invalid or expired token' });
   }
   try {
-    const user = await User.findById(claims.sub).select('_id');
+    const user = await User.findById(claims.sub).select('_id role');
     if (!user) return res.status(401).json({ error: 'Invalid or expired token' });
-    req.auth = { _id: String(user._id) };
+    req.auth = { _id: String(user._id), role: user.role || 'User' };
     return next();
   } catch (err) {
     return res.status(errorHandler.getStatus(err)).json({ error: errorHandler.getErrorMessage(err) });
@@ -70,7 +68,7 @@ const requireSignin = async (req, res, next) => {
 
 const requireAdmin = (req, res, next) => {
   if (!req.auth) return res.status(401).json({ error: 'Authentication required' });
-  if (!isAdmin(req.auth._id)) return res.status(403).json({ error: 'Portfolio owner access required' });
+  if (req.auth.role !== 'Admin') return res.status(403).json({ error: 'Admin access required' });
   return next();
 };
 
@@ -79,7 +77,7 @@ const hasAuthorization = (req, res, next) => {
   if (!/^[a-f0-9]{24}$/i.test(req.params.userId || '')) {
     return res.status(400).json({ error: 'Invalid user identifier' });
   }
-  if (req.auth._id.toLowerCase() !== req.params.userId.toLowerCase() && !isAdmin(req.auth._id)) {
+  if (req.auth._id.toLowerCase() !== req.params.userId.toLowerCase() && req.auth.role !== 'Admin') {
     return res.status(403).json({ error: 'You may only access your own account' });
   }
   return next();

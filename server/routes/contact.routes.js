@@ -1,15 +1,13 @@
-import express from 'express'
-    import contactCtrl from '../controllers/contact.controller.js' 
-    import authCtrl from '../controllers/auth.controller.js'
-    const router = express.Router()
-    const loadContact = (req, res, next) => contactCtrl.contactByID(req, res, next, req.params.contactId)
-    router.route('/api/contacts').post(contactCtrl.create)
-    router.route('/api/contacts').get(authCtrl.requireSignin, contactCtrl.list)
-    router.route('/api/contacts').delete(authCtrl.requireSignin, authCtrl.requireAdmin, contactCtrl.deleteAll)
-    router.route('/api/contacts/:contactId').get(authCtrl.requireSignin, loadContact, contactCtrl.read)
-    router.route('/api/contacts/:contactId').put(authCtrl.requireSignin, loadContact, contactCtrl.update)
-    router.route('/api/contacts/:contactId').delete(authCtrl.requireSignin, loadContact, contactCtrl.remove)
-
-    export default router
-
-
+﻿import express from 'express';
+import ctrl from '../controllers/contact.controller.js';
+import auth from '../controllers/auth.controller.js';
+const router = express.Router();
+const base = '/api/contacts';
+const load = (req, res, next) => ctrl.contactByID(req, res, next, req.params.contactId);
+router.get(base, auth.requireSignin, ctrl.list);
+router.post(base, auth.requireSignin, auth.requireAdmin, ctrl.create);
+router.delete(base, auth.requireSignin, auth.requireAdmin, ctrl.deleteAll);
+router.get(base + '/:contactId', auth.requireSignin, load, ctrl.read);
+router.put(base + '/:contactId', auth.requireSignin, auth.requireAdmin, load, ctrl.update);
+router.delete(base + '/:contactId', auth.requireSignin, auth.requireAdmin, load, ctrl.remove);
+export default router;

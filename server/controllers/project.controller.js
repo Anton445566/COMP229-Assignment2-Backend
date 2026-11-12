@@ -1,91 +1,34 @@
-
-import Project from '../models/project.model.js';
-
-// GET all projects
+﻿import Model from '../models/project.model.js';
+import errors from './error.controller.js';
+const fields = (body = {}) => Object.fromEntries(["title","firstname","lastname","email","completion","description"].filter(key => Object.hasOwn(body, key)).map(key => [key, body[key]]));
+const fail = (res, error) => res.status(errors.getStatus(error)).json({ error: errors.getErrorMessage(error) });
 const getAllProjects = async (req, res) => {
-  try {
-    const projects = await Project.find();
-    res.status(200).json(projects);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+ try { return res.json(await Model.find()); } catch (error) { return fail(res, error); }
 };
-
-// GET a project by ID
 const getProjectById = async (req, res) => {
-  try {
-    const project = await Project.findById(req.params.id);
-
-    if (!project) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
-
-    res.status(200).json(project);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findById(req.params.id);
+ return record ? res.json(record) : res.status(404).json({ error: 'Project not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// POST a new project
 const createProject = async (req, res) => {
-  try {
-    const project = new Project(req.body);
-    const savedProject = await project.save();
-    res.status(201).json(savedProject);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try { return res.status(201).json(await new Model(fields(req.body)).save()); }
+ catch (error) { return fail(res, error); }
 };
-
-// PUT update a project
 const updateProject = async (req, res) => {
-  try {
-    const project = await Project.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-
-    if (!project) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
-
-    res.status(200).json(project);
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findByIdAndUpdate(req.params.id, { $set: fields(req.body) }, { new: true, runValidators: true });
+ return record ? res.json(record) : res.status(404).json({ error: 'Project not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// DELETE a project by ID
 const deleteProject = async (req, res) => {
-  try {
-    const project = await Project.findByIdAndDelete(req.params.id);
-
-    if (!project) {
-      return res.status(404).json({ message: 'Project not found' });
-    }
-
-    res.status(200).json({ message: 'Project deleted successfully' });
-  } catch (error) {
-    res.status(400).json({ message: error.message });
-  }
+ try {
+ const record = await Model.findByIdAndDelete(req.params.id);
+ return record ? res.json({ message: 'Project deleted' }) : res.status(404).json({ error: 'Project not found' });
+ } catch (error) { return fail(res, error); }
 };
-
-// DELETE all projects
 const deleteAllProjects = async (req, res) => {
-  try {
-    await Project.deleteMany({});
-    res.status(200).json({ message: 'All projects deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+ try { await Model.deleteMany({}); return res.json({ message: 'All projects deleted' }); }
+ catch (error) { return fail(res, error); }
 };
-
-export default {
-  getAllProjects,
-  getProjectById,
-  createProject,
-  updateProject,
-  deleteProject,
-  deleteAllProjects
-};
+export default { getAllProjects, getProjectById, createProject, updateProject, deleteProject, deleteAllProjects };

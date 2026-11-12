@@ -292,3 +292,4 @@
     gap: 24px;
   }
 }
+.account-card { max-width: 720px; } .field { display: flex; flex-direction: column; gap: 8px; } button:disabled { opacity: .6; cursor: wait; } .record-text { white-space: pre-wrap; } .site-nav { align-items: center; }

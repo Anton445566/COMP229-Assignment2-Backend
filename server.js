@@ -1,11 +1,13 @@
 import config from './config/config.js';
 import app from './server/express.js';
 import mongoose from 'mongoose';
+import User from './server/models/user.model.js';
 
 mongoose.Promise = global.Promise;
 
-mongoose.connect(config.mongoUri)
-  .then(() => {
+mongoose.connect(config.mongoUri, { serverSelectionTimeoutMS: 10000 })
+  .then(async () => {
+    await User.init();
     console.log('Connected to the database!');
     app.listen(config.port, (err) => {
       if (err) {
